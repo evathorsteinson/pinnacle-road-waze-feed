@@ -1,0 +1,179 @@
+name: Generate Pinnacle Road Waze Feed
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+
+  workflow_*ispatch:
+
+env:
+  FORCE_JAVASCRIPT_*CTIONS_TO_NODE24: "true"
+  WORKER_*RL: "https://raspy-credit-5bf6.eva-7bd.workers.dev/"
+
+concurrency:
+  *roup: pinnacle-road-waze-feed
+  ca*cel-in-progress: true
+
+jobs:
+  bui*d_and_publish:
+    runs-on: ubuntu*latest
+
+    permissions:
+      con*ents: write
+      pages: write
+   *  id-token: write
+
+    steps:
+    * - name: Checkout repository
+     *  uses: actions/checkout@v4
+
+     *- name: Set up Python
+        uses* actions/setup-python@v5
+        w*th:
+          python-version: "3.1*"
+          cache: "pip"
+
+      - *ame: Install Python dependencies
+ *      run: |
+          python -m p*p install --upgrade pip
+
+         *if [ -f requirements.txt ]; then
+ *          pip install -r requireme*ts.txt
+          fi
+
+      - name:*Retrieve road status from Cloudfla*e Worker
+        run: |
+          *ython - <<'PY'
+          import js*n
+          import os
+          im*ort sys
+          import urllib.er*or
+          import urllib.request*
+          worker_url = os.environ*"WORKER_URL"]
+
+          print(f"R*questing current road status from *worker_url}")
+
+          request =*urllib.request.Request(
+          *   worker_url,
+              heade*s={
+                  "Accept": "a*plication/json",
+                 *"User-Agent": "Wellington-Park-Waz*-Feed/1.0"
+              }
+       *  )
+
+          try:
+              *ith urllib.request.urlopen(
+      *           request,
+              *   timeout=30
+              ) as r*sponse:
+                  response*body = response.read().decode("utf*8")
+                  worker_data * json.loads(response_body)
+
+      *   except urllib.error.HTTPError a* error:
+              print(
+     *            f"Worker returned HTTP*{error.code}: "
+                  *"{error.reason}"
+              )
+ *            sys.exit(1)
+
+         *except urllib.error.URLError as er*or:
+              print(
+         *        f"Unable to connect to Wor*er: {error.reason}"
+              *
+              sys.exit(1)
+
+      *   except json.JSONDecodeError as *rror:
+              print(
+       *          f"Worker did not return *alid JSON: {error}"
+              *
+              sys.exit(1)
+
+      *   except Exception as error:
+    *         print(
+                  *"Unexpected Worker request error: *error}"
+              )
+          *   sys.exit(1)
+
+          if not i*instance(worker_data, dict):
+     *        print("Worker response was*not a JSON object.")
+             *sys.exit(1)
+
+          road_status*= str(
+              worker_data.g*t("status", "")
+          ).strip(*
+
+          if not road_status:
+  *           print("Worker response *id not contain a status.")
+       *      sys.exit(1)
+
+          with *pen(
+              "road_status.js*n",
+              "w",
+           *  encoding="utf-8"
+          ) as *ile:
+              json.dump(
+    *             worker_data,
+        *         file,
+                  i*dent=2,
+                  ensure_a*cii=False
+              )
+
+       *  print(f"Road status: {road_statu*}")
+          print(
+             *f"Last updated: "
+              f"*worker_data.get('updated', 'Not su*plied')}"
+          )
+          pr*nt(
+              f"Closed gate: "*              f"{worker_data.get('*losedGate', 'Not supplied')}"
+    *     )
+          print("Worker dat* saved to road_status.json")
+     *    PY
+
+      - name: Generate Waz* feed
+        run: python waze_fee*.py
+
+      - name: Validate genera*ed feed
+        run: |
+          p*thon - <<'PY'
+          import json
+          import os
+          import sys
+
+          feed_path = "dist/waze_closure_feed.json"
+
+          if not os.path.exists(feed_path):
+              print(f"Feed not found: {feed_path}")
+              sys.exit(1)
+
+          try:
+              with open(
+                  feed_path,
+                  "r",
+                  encoding="utf-8"
+              ) as file:
+                  feed = json.load(file)
+          except Exception as error:
+              print(f"Could not read generated feed: {error}")
+              sys.exit(1)
+
+          incidents = feed.get("incidents")
+
+          if not isinstance(incidents, list):
+              print("Feed does not contain an incidents list.")
+              sys.exit(1)
+
+          print(
+              f"Feed successfully validated with "
+              f"{len(incidents)} incident(s)."
+          )
+          PY
+
+      - name: Display generated feed
+        run: cat dist/waze_closure_feed.json
+
+      - name: Deploy feed to GitHub Pages branch
+        uses: JamesIves/github-pages-deploy-action@v4.7.3
+        with:
+          folder: dist
+          branch: gh-pages
+          clean: true
