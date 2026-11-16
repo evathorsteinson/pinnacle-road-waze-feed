@@ -140,6 +140,11 @@ jobs:
       - name: Display generated feed
         run: cat dist/waze_closure_feed.json
 
+      - name: Add feed generation timestamp
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > dist/feed_generated_utc.txt
+          cat dist/feed_generated_utc.txt
+
       - name: Deploy feed to GitHub Pages branch
         uses: JamesIves/github-pages-deploy-action@v4.7.3
         with:
