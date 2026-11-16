@@ -1,140 +1,109 @@
 name: Generate Pinnacle Road Waze Feed
 
 on:
+  workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
 
-  workflow_*ispatch:
-
 env:
-  FORCE_JAVASCRIPT_*CTIONS_TO_NODE24: "true"
-  WORKER_*RL: "https://raspy-credit-5bf6.eva-7bd.workers.dev/"
+  WORKER_URL: "https://raspy-credit-5bf6.eva-7bd.workers.dev/"
+
+permissions:
+  contents: write
 
 concurrency:
-  *roup: pinnacle-road-waze-feed
-  ca*cel-in-progress: true
+  group: pinnacle-road-waze-feed
+  cancel-in-progress: true
 
 jobs:
-  bui*d_and_publish:
-    runs-on: ubuntu*latest
-
-    permissions:
-      con*ents: write
-      pages: write
-   *  id-token: write
+  build-and-publish:
+    runs-on: ubuntu-latest
 
     steps:
-    * - name: Checkout repository
-     *  uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-     *- name: Set up Python
-        uses* actions/setup-python@v5
-        w*th:
-          python-version: "3.1*"
-          cache: "pip"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - *ame: Install Python dependencies
- *      run: |
-          python -m p*p install --upgrade pip
-
-         *if [ -f requirements.txt ]; then
- *          pip install -r requireme*ts.txt
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
           fi
 
-      - name:*Retrieve road status from Cloudfla*e Worker
+      - name: Retrieve road status from Cloudflare Worker
         run: |
-          *ython - <<'PY'
-          import js*n
+          python - <<'PY'
+          import json
           import os
-          im*ort sys
-          import urllib.er*or
-          import urllib.request*
-          worker_url = os.environ*"WORKER_URL"]
+          import sys
+          import urllib.request
 
-          print(f"R*questing current road status from *worker_url}")
-
-          request =*urllib.request.Request(
-          *   worker_url,
-              heade*s={
-                  "Accept": "a*plication/json",
-                 *"User-Agent": "Wellington-Park-Waz*-Feed/1.0"
-              }
-       *  )
+          worker_url = os.environ["WORKER_URL"]
 
           try:
-              *ith urllib.request.urlopen(
-      *           request,
-              *   timeout=30
-              ) as r*sponse:
-                  response*body = response.read().decode("utf*8")
-                  worker_data * json.loads(response_body)
-
-      *   except urllib.error.HTTPError a* error:
-              print(
-     *            f"Worker returned HTTP*{error.code}: "
-                  *"{error.reason}"
+              request = urllib.request.Request(
+                  worker_url,
+                  headers={
+                      "Accept": "application/json",
+                      "User-Agent": "Wellington-Park-Waze-Feed/1.0"
+                  }
               )
- *            sys.exit(1)
 
-         *except urllib.error.URLError as er*or:
-              print(
-         *        f"Unable to connect to Wor*er: {error.reason}"
-              *
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  worker_data = json.loads(
+                      response.read().decode("utf-8")
+                  )
+
+          except Exception as error:
+              print(f"Failed to retrieve Worker data: {error}")
               sys.exit(1)
 
-      *   except json.JSONDecodeError as *rror:
-              print(
-       *          f"Worker did not return *alid JSON: {error}"
-              *
+          if not isinstance(worker_data, dict):
+              print("Worker response was not a JSON object.")
               sys.exit(1)
 
-      *   except Exception as error:
-    *         print(
-                  *"Unexpected Worker request error: *error}"
-              )
-          *   sys.exit(1)
-
-          if not i*instance(worker_data, dict):
-     *        print("Worker response was*not a JSON object.")
-             *sys.exit(1)
-
-          road_status*= str(
-              worker_data.g*t("status", "")
-          ).strip(*
+          road_status = str(
+              worker_data.get("status", "")
+          ).strip()
 
           if not road_status:
-  *           print("Worker response *id not contain a status.")
-       *      sys.exit(1)
+              print("Worker response did not contain a status.")
+              sys.exit(1)
 
-          with *pen(
-              "road_status.js*n",
+          with open(
+              "road_status.json",
               "w",
-           *  encoding="utf-8"
-          ) as *ile:
+              encoding="utf-8"
+          ) as file:
               json.dump(
-    *             worker_data,
-        *         file,
-                  i*dent=2,
-                  ensure_a*cii=False
+                  worker_data,
+                  file,
+                  indent=2,
+                  ensure_ascii=False
               )
 
-       *  print(f"Road status: {road_statu*}")
+          print(f"Road status: {road_status}")
           print(
-             *f"Last updated: "
-              f"*worker_data.get('updated', 'Not su*plied')}"
+              "Last updated: "
+              + str(worker_data.get("updated", "Not supplied"))
           )
-          pr*nt(
-              f"Closed gate: "*              f"{worker_data.get('*losedGate', 'Not supplied')}"
-    *     )
-          print("Worker dat* saved to road_status.json")
-     *    PY
+          print(
+              "Closed gate: "
+              + str(worker_data.get("closedGate", "Not supplied"))
+          )
+          PY
 
-      - name: Generate Waz* feed
-        run: python waze_fee*.py
+      - name: Generate Waze feed
+        run: python waze_feed.py
 
-      - name: Validate genera*ed feed
+      - name: Validate generated feed
         run: |
-          p*thon - <<'PY'
+          python - <<'PY'
           import json
           import os
           import sys
@@ -152,6 +121,7 @@ jobs:
                   encoding="utf-8"
               ) as file:
                   feed = json.load(file)
+
           except Exception as error:
               print(f"Could not read generated feed: {error}")
               sys.exit(1)
@@ -163,8 +133,7 @@ jobs:
               sys.exit(1)
 
           print(
-              f"Feed successfully validated with "
-              f"{len(incidents)} incident(s)."
+              f"Feed validated with {len(incidents)} incident(s)."
           )
           PY
 
